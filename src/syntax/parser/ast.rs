@@ -1,15 +1,24 @@
 mod from_untyped;
 
 use crate::source::Span;
+use crate::terms::Name;
 use std::rc::Rc;
 
 /// Possible input to an REPL.
 #[derive(Debug)]
 pub enum ReplInput {
+    /// Load the indicated file
+    Load(Option<Filepath>),
     /// A definition, e.g. `Id = x => x`.
     Def(Def),
     /// A term to reduce, e.g. `(x => x x) x => x x`.
     Term(Term),
+    /// Step current term
+    Step(Option<Term>),
+    /// Print help
+    Help,
+    /// Quit the current REPL session
+    Quit,
     Unknown,
 }
 
@@ -77,16 +86,4 @@ pub enum Term {
         rands: Vec<Term>,
         span: Span,
     },
-}
-
-/// A representation of a "name" (text), used for both aliases and vars.
-#[derive(Debug, Clone)]
-pub struct Name {
-    /// The name's text.
-    pub text: Rc<String>,
-    pub span: Span,
-    /// Whether or not the name is "bad": this is `true` if the name is an alias
-    /// appearing where a var is expected (e.g. in an abstraction's bound vars),
-    /// or a var where an alias is expected (e.g. in an import declaration).
-    pub bad: bool,
 }

@@ -22,16 +22,35 @@ impl From<UntypedTree> for ReplInput {
 
                 children
                     .pop()
-                    .and_then(|input| {
-                        if input.has_kind(&Sk::Def) {
-                            let def: Option<Def> = input.into();
-                            def.map(ReplInput::Def)
-                        } else if input.has_kind(&Sk::Tms) {
-                            let term: Option<Term> = input.into();
-                            term.map(ReplInput::Term)
-                        } else {
-                            None
-                        }
+                    .and_then(|input| match input {
+                        Inner {
+                            kind, mut children, ..
+                        } => match kind {
+                            Sk::LoadCommand => {
+                                let child = skip_concrete(children).next()?;
+                                let filepath = <Option<Filepath>>::from(child);
+                                Some(ReplInput::Load(filepath))
+                            }
+                            Sk::DefCommand => {
+                                let child = children.pop()?;
+                                let def = <Option<Def>>::from(child)?;
+                                Some(ReplInput::Def(def))
+                            }
+                            Sk::TermCommand => {
+                                let child = children.pop()?;
+                                let term = <Option<Term>>::from(child)?;
+                                Some(ReplInput::Term(term))
+                            }
+                            Sk::StepCommand => {
+                                let child = skip_concrete(children).next()?;
+                                let term = <Option<Term>>::from(child);
+                                Some(ReplInput::Step(term))
+                            }
+                            Sk::HelpCommand => Some(ReplInput::Help),
+                            Sk::QuitCommand => Some(ReplInput::Quit),
+                            _ => Some(ReplInput::Unknown),
+                        },
+                        Leaf(..) => Some(ReplInput::Unknown),
                     })
                     .unwrap_or(ReplInput::Unknown)
             }
@@ -144,11 +163,7 @@ impl From<UntypedTree> for Option<Name> {
         {
             match kind {
                 Sk::Name | Sk::BadName => match children.pop() {
-                    Some(Leaf(Token { text, .. })) => Some(Name {
-                        text,
-                        span,
-                        bad: kind == Sk::BadName,
-                    }),
+                    Some(Leaf(Token { text, .. })) => Some(Name { text, span }),
                     _ => None,
                 },
                 _ => None,
@@ -163,7 +178,7 @@ impl From<UntypedTree> for Option<Filepath> {
     fn from(tree: UntypedTree) -> Option<Filepath> {
         match tree {
             Inner {
-                kind: Sk::ImportFilepath,
+                kind: Sk::Filepath,
                 span,
                 mut children,
             } => match children.pop() {

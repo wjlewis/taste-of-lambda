@@ -6,6 +6,12 @@ pub trait Error: fmt::Debug {
 }
 
 #[derive(Debug)]
+pub struct WithSimpleErrors<T> {
+    pub result: T,
+    pub errors: Vec<SimpleError>,
+}
+
+#[derive(Debug)]
 pub struct SimpleError {
     message: String,
     span: Span,

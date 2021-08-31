@@ -75,11 +75,19 @@ impl UntypedTree {
 #[derive(Debug, PartialEq)]
 pub enum SyntaxKind {
     ReplInput,
+    LoadCommand,
+    DefCommand,
+    TermCommand,
+    StepCommand,
+    HelpCommand,
+    QuitCommand,
+    UnknownCommand,
+
     Module,
     Def,
     Import,
     ImportAliases,
-    ImportFilepath,
+    Filepath,
     Tms,
     Var,
     Alias,

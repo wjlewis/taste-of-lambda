@@ -1,17 +1,17 @@
 pub mod ast;
-pub mod tree_builder;
+mod raw;
 mod untyped_tree;
 
 use self::ast::{Module, ReplInput};
-use self::tree_builder::TreeBuilder;
+use self::raw::{parse_untyped_module, parse_untyped_repl_input};
 use crate::errors::SimpleError;
 
 pub fn parse_repl_input<'a>(source: &'a str) -> ParseResult<ReplInput> {
-    TreeBuilder::parse_repl_input(source).map(ReplInput::from)
+    parse_untyped_repl_input(source).map(ReplInput::from)
 }
 
 pub fn parse_module<'a>(source: &'a str) -> ParseResult<Module> {
-    TreeBuilder::parse_module(source).map(Module::from)
+    parse_untyped_module(source).map(Module::from)
 }
 
 /// The result of parsing a construct.
@@ -19,8 +19,8 @@ pub fn parse_module<'a>(source: &'a str) -> ParseResult<Module> {
 /// incomplete/incorrect, errors will be returned as well.
 #[derive(Debug)]
 pub struct ParseResult<T> {
-    result: T,
-    errors: Vec<SimpleError>,
+    pub result: T,
+    pub errors: Vec<SimpleError>,
 }
 
 impl<T> ParseResult<T> {

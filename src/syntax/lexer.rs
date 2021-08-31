@@ -1,7 +1,7 @@
 mod interner;
 
 use self::interner::Interner;
-use super::tokens::{Token, TokenKind as Tk};
+use super::tokens::{CommandLeader, Token, TokenKind as Tk};
 use crate::source::Span;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -81,6 +81,7 @@ impl<'a> Lexer<'a> {
             '=' => self.read_equals_or_arrow(),
             '#' => self.read_comment(),
             '"' => self.read_string(),
+            ':' => self.read_command_leader(),
             c if Self::is_name_start(c) => self.read_name(),
             c if Self::is_alias_start(c) => self.read_alias(),
             c if Self::is_whitespace(c) => self.read_whitespace(),
@@ -130,6 +131,23 @@ impl<'a> Lexer<'a> {
             self.chars.next();
         }
         Tk::UnterminatedString
+    }
+
+    fn read_command_leader(&mut self) -> Tk {
+        let start = self.current_pos();
+        self.eat_while(Self::is_command_leader_continue);
+        let end = self.current_pos();
+
+        let leader_text = &self.source[start..end];
+        let leader = match leader_text {
+            "l" | "load" => CommandLeader::Load,
+            "s" | "step" => CommandLeader::Step,
+            "h" | "help" => CommandLeader::Help,
+            "q" | "quit" => CommandLeader::Quit,
+            _ => CommandLeader::Unknown,
+        };
+
+        Tk::CommandLeader(leader)
     }
 
     fn read_name(&mut self) -> Tk {
@@ -197,6 +215,13 @@ impl<'a> Lexer<'a> {
     fn is_whitespace(c: char) -> bool {
         match c {
             ' ' | '\t' | '\n' | '\r' => true,
+            _ => false,
+        }
+    }
+
+    fn is_command_leader_continue(c: char) -> bool {
+        match c {
+            'a'..='z' => true,
             _ => false,
         }
     }
@@ -327,6 +352,36 @@ var Alias"#,
         let l = Lexer::from("**-^^%<>:: unknown");
 
         assert_eq!(l.collect_kinds(), vec![Unknown, Whitespace, Var]);
+    }
+
+    #[test]
+    fn reads_command_leaders() {
+        use super::super::tokens::CommandLeader::*;
+        let l = Lexer::from(":help :h :quit :q :step :s :load :l :unknown :");
+        assert_eq!(
+            l.collect_kinds(),
+            vec![
+                CommandLeader(Help),
+                Whitespace,
+                CommandLeader(Help),
+                Whitespace,
+                CommandLeader(Quit),
+                Whitespace,
+                CommandLeader(Quit),
+                Whitespace,
+                CommandLeader(Step),
+                Whitespace,
+                CommandLeader(Step),
+                Whitespace,
+                CommandLeader(Load),
+                Whitespace,
+                CommandLeader(Load),
+                Whitespace,
+                CommandLeader(Unknown),
+                Whitespace,
+                CommandLeader(Unknown),
+            ]
+        );
     }
 
     #[test]

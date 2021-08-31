@@ -5,10 +5,24 @@ use super::ParseResult;
 use crate::errors::SimpleError;
 use crate::source::Span;
 use crate::syntax::lexer::Lexer;
-use crate::syntax::tokens::{Token, TokenKind as Tk};
+use crate::syntax::tokens::{CommandLeader as Cl, Token, TokenKind as Tk};
+
+/// Parse input to the REPL (e.g. definitions, terms, special commands).
+pub fn parse_untyped_repl_input(source: &str) -> ParseResult<UntypedTree> {
+    let mut builder = TreeBuilder::from(source);
+    builder.parse_repl_input();
+    builder.take()
+}
+
+/// Parse a module (file).
+pub fn parse_untyped_module(source: &str) -> ParseResult<UntypedTree> {
+    let mut builder = TreeBuilder::from(source);
+    builder.parse_module();
+    builder.take()
+}
 
 /// A stateful tree building device.
-pub struct TreeBuilder<'a> {
+struct TreeBuilder<'a> {
     /// The source of tokens used to construct a tree.
     tokens: Lexer<'a>,
     /// A stack of in-progress and completed tree nodes. In-progress nodes are
@@ -25,33 +39,36 @@ pub struct TreeBuilder<'a> {
 }
 
 impl<'a> TreeBuilder<'a> {
-    /// Parses input to the REPL (e.g. definitions, terms, special commands).
-    pub fn parse_repl_input(source: &'a str) -> ParseResult<UntypedTree> {
-        let mut builder = TreeBuilder::from(source);
-        builder._parse_repl_input();
-        builder.take()
-    }
-
-    /// Parses a module (file).
-    pub fn parse_module(source: &'a str) -> ParseResult<UntypedTree> {
-        let mut builder = TreeBuilder::from(source);
-        builder._parse_module();
-        builder.take()
-    }
-
-    fn _parse_repl_input(&mut self) {
+    fn parse_repl_input(&mut self) {
         self.open(Sk::ReplInput);
         self.skip_trivia();
         let peek = self.tokens.peek();
         let kind = peek.kind;
         let span = peek.span.clone();
         match kind {
-            Tk::Alias | Tk::Var if self.starts_def() => self.parse_def(),
-            Tk::Equals => self.parse_def(),
-            Tk::Var | Tk::Alias | Tk::LParen | Tk::Comma | Tk::Arrow => self.parse_tms(),
-            _ => self.error("expected a definition or term before this", span),
+            Tk::Alias | Tk::Var if self.starts_def() => {
+                self.open(Sk::DefCommand);
+                self.parse_def();
+                self.close(Sk::DefCommand);
+            }
+            Tk::Equals => {
+                self.open(Sk::DefCommand);
+                self.parse_def();
+                self.close(Sk::DefCommand);
+            }
+            Tk::Var | Tk::Alias | Tk::LParen | Tk::Comma | Tk::Arrow => {
+                self.open(Sk::TermCommand);
+                self.parse_tms();
+                self.close(Sk::TermCommand);
+            }
+            Tk::CommandLeader(cl) => self.parse_led_command(cl),
+            _ => self.error(
+                "expected a definition, term, or other command before this",
+                span,
+            ),
         }
 
+        // Collecting extraneous input
         self.skip_trivia();
         let start_span = self.tokens.peek().span.clone();
         let end_span = loop {
@@ -69,7 +86,70 @@ impl<'a> TreeBuilder<'a> {
         self.close(Sk::ReplInput);
     }
 
-    fn _parse_module(&mut self) {
+    fn parse_led_command(&mut self, leader: Cl) {
+        match leader {
+            Cl::Load => {
+                self.open(Sk::LoadCommand);
+                self.pop_leaf();
+
+                self.skip_trivia();
+                let peek = self.tokens.peek();
+                match peek.kind {
+                    Tk::String => {
+                        self.open(Sk::Filepath);
+                        self.pop_leaf();
+                        self.close(Sk::Filepath);
+                    }
+                    Tk::UnterminatedString => {
+                        let span = peek.span.clone();
+                        self.error("unterminated filepath", span);
+                        self.open(Sk::Filepath);
+                        self.pop_leaf();
+                        self.close(Sk::Filepath);
+                    }
+                    _ => {
+                        let span = peek.span.clone();
+                        self.error("expected a filepath before this", span);
+                    }
+                }
+
+                self.close(Sk::LoadCommand);
+            }
+            Cl::Step => {
+                self.open(Sk::StepCommand);
+                self.pop_leaf();
+
+                self.skip_trivia();
+                let peek = self.tokens.peek();
+                match peek.kind {
+                    Tk::Var | Tk::Alias | Tk::LParen | Tk::Comma | Tk::Arrow => self.parse_tms(),
+                    _ => {
+                        let span = peek.span.clone();
+                        self.error("expected a term here", span);
+                    }
+                }
+
+                self.close(Sk::StepCommand);
+            }
+            Cl::Help => {
+                self.open(Sk::HelpCommand);
+                self.pop_leaf();
+                self.close(Sk::HelpCommand);
+            }
+            Cl::Quit => {
+                self.open(Sk::QuitCommand);
+                self.pop_leaf();
+                self.close(Sk::QuitCommand);
+            }
+            Cl::Unknown => {
+                self.open(Sk::UnknownCommand);
+                self.pop_leaf();
+                self.close(Sk::UnknownCommand);
+            }
+        }
+    }
+
+    fn parse_module(&mut self) {
         self.open(Sk::Module);
         loop {
             self.skip_trivia();
@@ -227,16 +307,16 @@ impl<'a> TreeBuilder<'a> {
         let peek = self.tokens.peek();
         match peek.kind {
             Tk::String => {
-                self.open(Sk::ImportFilepath);
+                self.open(Sk::Filepath);
                 self.pop_leaf();
-                self.close(Sk::ImportFilepath);
+                self.close(Sk::Filepath);
             }
             Tk::UnterminatedString => {
                 let span = peek.span.clone();
                 self.error("unterminated filepath", span);
-                self.open(Sk::ImportFilepath);
+                self.open(Sk::Filepath);
                 self.pop_leaf();
-                self.close(Sk::ImportFilepath);
+                self.close(Sk::Filepath);
             }
             _ => {
                 let span = peek.span.clone();
@@ -791,28 +871,29 @@ mod tests {
 
     #[test]
     fn parses_valid_repl_def_correctly() {
-        let ParseResult { result, errors } = TreeBuilder::parse_repl_input("Id = x => x");
+        let ParseResult { result, errors } = parse_untyped_repl_input("Id = x => x");
 
         assert!(errors.is_empty());
         let tree = KindTree::from(result);
         let expected = r#"ReplInput
-  Def
-    Name
-      "Id"
-    " "
-    "="
-    " "
-    Tms
-      Abs
-        AbsVars
-          Name
-            "x"
-        " "
-        "=>"
-        " "
-        Tms
-          Var
-            "x"
+  DefCommand
+    Def
+      Name
+        "Id"
+      " "
+      "="
+      " "
+      Tms
+        Abs
+          AbsVars
+            Name
+              "x"
+          " "
+          "=>"
+          " "
+          Tms
+            Var
+              "x"
 "#;
 
         assert_eq!(tree.to_string(), expected);

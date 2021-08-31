@@ -24,22 +24,32 @@ impl Token {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenKind {
-    LParen,             // (
-    RParen,             // )
-    LBrace,             // {
-    RBrace,             // }
-    Comma,              // ,
-    Semi,               // ;
-    Equals,             // =
-    Arrow,              // =>
-    Var,                // [a-z][a-zA-Z0-9*+']*
-    Alias,              // [A-Z][a-zA-Z0-9*+']*
-    String,             // ".."
-    UnterminatedString, // "..
-    Comment,            // # ..
-    Whitespace,         // ' ' | \t | \n | \r | \r\n
-    Eof,                //
-    Unknown,            //
+    LParen,                       // (
+    RParen,                       // )
+    LBrace,                       // {
+    RBrace,                       // }
+    Comma,                        // ,
+    Semi,                         // ;
+    Equals,                       // =
+    Arrow,                        // =>
+    Var,                          // [a-z][a-zA-Z0-9*+']*
+    Alias,                        // [A-Z][a-zA-Z0-9*+']*
+    String,                       // ".."
+    UnterminatedString,           // "..
+    Comment,                      // # ..
+    Whitespace,                   // ' ' | \t | \n | \r | \r\n
+    Eof,                          //
+    CommandLeader(CommandLeader), //
+    Unknown,                      //
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum CommandLeader {
+    Load,    // :l | :load
+    Step,    // :s | :step
+    Help,    // :h | :help
+    Quit,    // :q | :quit
+    Unknown, // ':', followed by anything else
 }
 
 impl TokenKind {
